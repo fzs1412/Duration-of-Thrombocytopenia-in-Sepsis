@@ -1,0 +1,259 @@
+dat<-read.csv(
+  "C:/Users/Administrator/OneDrive/R/血小板sepsis持续时间/数据处理/dry_TP100mice1.csv")
+dat=dat[dat$ICUstay>=3,]
+#分组plt_time 0， 2,>2   
+dat$group=cut(dat$plt_time,c(-Inf,0,3,Inf),labels =1:3)
+dat$group=ifelse(dat$plt_time==0&dat$icu_plt_min<=100,2,dat$group)
+##28day  死亡率
+dat$Hospital_mortality=  ifelse(dat$Hosp..LOS>=28& dat$Hospital_mortality==1,0, dat$Hospital_mortality) 
+
+#cox
+dat$HXJ=ifelse(dat$HXJstay>0,1,0)
+dat$group=factor(dat$group)
+
+cox_model <- coxph(Surv(Hosp..LOS, Hospital_mortality) ~ group+Age+Male, dat)
+tbl_regression(cox_model, exponentiate = TRUE)
+
+#森林图
+dat<-read.csv(
+  "C:/Users/lxqji/OneDrive/R/血小板sepsis持续时间/数据处理/dry_TP100mice1.csv")
+dat=dat[dat$ICUstay>=3,]
+dat$group=cut(dat$plt_time,c(-Inf,0,3,Inf),labels =1:3)
+dat$group=ifelse(dat$plt_time==0&dat$icu_plt_min<=100,2,dat$group)
+dat$group=factor(dat$group)
+dat$HXJ=ifelse(dat$HXJstay>0,1,0)
+dat$HXJ=factor(dat$HXJ)
+dat$Chronic.obstructive.pulmonary.disease=factor(dat$Chronic.obstructive.pulmonary.disease)
+dat$Surgery_time=ifelse(dat$Surgery_time>0,1,0)
+
+colnames(dat)=c("Hosp..LOS","Hospital_mortality","Group","Age","Gender",
+                "COPD","Creatinine","pH","Lactate"
+                ,"Machine_ventilation","APACHEII","Lymphocyte",
+                "Surgery","RRT","Initial_platelet","Antiplatelet_drug_use")
+
+dat <- within(dat, {
+  COPD <- factor(COPD, labels = c("No", "Yes"))
+  Group <- factor(Group , labels = c("NO TP", "TP 1-3day", "TP >3day"))
+  Machine_ventilation <- factor(Machine_ventilation, labels = c("No", "Yes"))
+  Gender <- factor(Gender, labels = c("Female", "Male"))
+  Surgery <- factor(Surgery, labels = c("No", "Yes"))
+  Antiplatelet_drug_use <- factor(Antiplatelet_drug_use, labels = c("No", "Yes"))
+  RRT <- factor(RRT, labels = c("No", "Yes"))})
+
+cox_mode1 <- coxph(Surv(Hosp..LOS, Hospital_mortality) ~ Group, dat)
+tbl_regression(cox_mode1, exponentiate = TRUE)
+
+cox_mode2 <- coxph(Surv(Hosp..LOS, Hospital_mortality) ~ Group+Age+Gender, dat)
+tbl_regression(cox_mode2, exponentiate = TRUE)
+
+fit<-lm(Hosp..LOS ~ Group+Age+APACHEII+
+          COPD+Machine_ventilation+Creatinine+pH+Lactate+
+          Lymphocyte,data=dat)
+vif(fit)
+
+#KM
+dat[dat$Hosp..LOS>32,]$Hosp..LOS<-32
+library("survival")
+library("survminer")
+fit <- survfit(Surv(Hosp..LOS, Hospital_mortality) ~ group, data = dat)
+ggsurvplot(fit,
+           #conf.int = TRUE,# 显示置信区间
+           xlab='days', 
+           pval = T,
+           pval.size=3,
+           #linetype = "group", # 根据性别分组自动设置曲线类型
+           legend.labs=c('NO TP','TP for 1–3 days','TP for >3 days'),
+           surv.median.line = "hv", # 设置中位生存期显示
+           ggtheme = theme_bw(), # 设置ggplot2主题
+           palette = c("#E7B800", "#2E9FDF","#00A600FF"))
+
+
+#无ICU天数  无呼吸机天数
+dat$sTP=ifelse(dat$icu_plt_min<=50,1,0)
+dat = subset(dat, select=c(HXJstay,ICUstay,Hosp..LOS,group,Hospital_mortality,sTP)) 
+dat1=dat[dat$Hosp..LOS>=28,]
+dat2=dat[dat$Hosp..LOS<28,]
+dat1$free_hxjday=28-dat1$HXJstay
+dat1$free_icuday=28-dat1$ICUstay
+dat1$free_hosday=0
+dat2$free_hxjday=ifelse(dat2$Hospital_mortality==1,0,28-dat2$HXJstay )        
+dat2$free_icuday=ifelse(dat2$Hospital_mortality==1,0,28-dat2$ICUstay ) 
+dat2$free_hosday=ifelse(dat2$Hospital_mortality==1,0,28-dat2$Hosp..LOS ) 
+dat=rbind(dat1,dat2)
+dat$free_hxjday=ifelse(dat$free_hxjday<0,0,dat$free_hxjday)
+dat$free_icuday=ifelse(dat$free_icuday<0,0,dat$free_icuday)
+library(CBCgrps)
+tab1<-multigrps(dat,gvar = "group",norm.rd = 1,cat.rd = 1,
+                skewvar = c( "free_hxjday", "free_icuday", "free_hosday") )
+print(tab1,quote = TRUE) 
+
+
+#mimic  
+dat<-read.csv(
+  "C:/Users/Administrator/OneDrive/R/thrombocytopenia_time/mimic_2205micex2.csv")
+dat=dat[dat$iculos>=3,] #11710
+#合并sepsis
+angus_sepsis=read.csv("C:/Users/Administrator/OneDrive/R/MIMIC/angus_sepsis.csv")
+#选择感染
+aa=subset(angus_sepsis,select=c(hadm_id,infection))
+dd_merge=merge(dat,aa,by = 'hadm_id')
+#sofa>1
+dd_merge=dd_merge[dd_merge$sofa_initia>1,]
+#合并感染
+dat=dd_merge[dd_merge$infection==1,]  #12681
+dat=dat[dat$age>=18,]  #5696
+
+#排除入ICU前24小时出现血小板减少
+plt_befor_icu24h_min=read.csv(
+  "C:/Users/Administrator/OneDrive/R/持续性短暂性脓毒症血小板/数据处理/plt_befor_icu24h_min.csv")
+dd_merge=merge(dat,plt_befor_icu24h_min,by = 'icustay_id',all.x = TRUE)
+dd_merge$plt_befor_icu24h_min[is.na(dd_merge$plt_befor_icu24h_min)] <-  217
+dat=dd_merge[dd_merge$plt_befor_icu24h_min>100,]  #排除5696-5473
+
+write.csv(dat,file = "mimic_TP100mice1.csv")
+
+#处理plt_time
+dat<-read.csv("C:/Users/Administrator/OneDrive/R/thrombocytopenia_time/mimic_220504dat_mice2.csv")
+dat =  subset(dat, select=c(plt_time,icustay_id))
+dat$plt_time=dat$plt_time/24/3600
+aa=dat
+dd_merge=merge(dat,aa,by = 'icustay_id',all.x = TRUE)  
+write.csv(dd_merge,file = "mimic_TP100mice2.csv")
+#处理plt_time
+
+dat<-read.csv(
+  "C:/Users/Administrator/OneDrive/R/血小板sepsis持续时间/数据处理/mimic_TP100mice2.csv")
+dat$sTP=ifelse(dat$icu_plt_min<=50,1,0)
+dat$group=cut(dat$plt_time,c(-Inf,0,3,Inf),labels =1:3)
+dat$group=ifelse(dat$plt_time==0&dat$icu_plt_min<=100,2,dat$group)
+
+#cox_roc
+names(dat)
+dat=dat[dat$group>1,]
+dat = subset(dat, select=c(plt_time,hos_stay,hos_mort)) 
+write.csv(dat,file = "mimic_cox_roc1.csv")
+##
+
+library(CBCgrps)
+tab1<-multigrps(dat,gvar = "group",norm.rd = 1,cat.rd = 1,
+                skewvar = c( "plt_time", "iculos", "hxj_stay","hos_stay","scr_in",
+                             "urea_initial", "pt" ,"gas_lactate"  ) )
+print(tab1,quote = TRUE) 
+
+#无ICU时间
+dat = subset(dat, select=c(hxj_stay,iculos,hos_stay,group,hos_mort,sTP,class)) 
+colnames(dat)=c("HXJstay","ICUstay","Hosp..LOS","group","Hospital_mortality","sTP","class")
+
+dat1=dat[dat$Hosp..LOS>=28,]
+dat2=dat[dat$Hosp..LOS<28,]
+dat1$free_hxjday=28-dat1$HXJstay
+dat1$free_icuday=28-dat1$ICUstay
+dat1$free_hosday=0
+dat2$free_hxjday=ifelse(dat2$Hospital_mortality==1,0,28-dat2$HXJstay )        
+dat2$free_icuday=ifelse(dat2$Hospital_mortality==1,0,28-dat2$ICUstay ) 
+dat2$free_hosday=ifelse(dat2$Hospital_mortality==1,0,28-dat2$Hosp..LOS ) 
+dat=rbind(dat1,dat2)
+dat$free_hxjday=ifelse(dat$free_hxjday<0,0,dat$free_hxjday)
+dat$free_icuday=ifelse(dat$free_icuday<0,0,dat$free_icuday)
+
+library(CBCgrps)
+tab1<-multigrps(dat,gvar = "group",norm.rd = 1,cat.rd = 1,
+                skewvar = c( "free_hxjday", "free_icuday", "free_hosday") )
+print(tab1,quote = TRUE) 
+
+tab1<-multigrps(dat,gvar = "class",norm.rd = 1,cat.rd = 1,
+                skewvar = c( "free_hxjday", "free_icuday", "free_hosday") )
+print(tab1,quote = TRUE) 
+
+dat$group=factor(dat$group)
+dat$gender=ifelse(dat$gender=="M",1,0)
+
+cox_model <- coxph(Surv(hos_stay, hos_mort) ~ group, dat)
+tbl_regression(cox_model, exponentiate = TRUE)
+
+#调整Age+Male
+cox_mode2 <- coxph(Surv(hos_stay, hos_mort) ~ group+age+gender, dat)
+tbl_regression(cox_mode2, exponentiate = TRUE)
+
+cox_mode3 <- coxph(Surv(hos_stay, hos_mort) ~ group+gender+   hypertension+         
+                     copd+ sofa_initia+ crrt + hxj +scr_in  + k_initial+ urea_initial+HB+pt                         
+                   +wbc_initial+ gas_lactate+  gas_ph+  HCO3+ age +shock+gas_po2+RBC                             
+                   , dat)
+
+
+cox_mode3 <- coxph(Surv(hos_stay, hos_mort) ~ group+pt +shock+hypertension
+                   + copd+ sofa_initia   + scr_in                 
+                   + age +gas_po2   
+                   ,dat)
+tbl_regression(cox_mode3, exponentiate = TRUE)
+
+test.ph <- cox.zph(cox_mode3)
+test.ph 
+
+table1=tbl_regression(cox_mode3, exponentiate = TRUE)
+table1 <- as_flex_table(table1)
+save_as_docx(table1, path = "mimic_cox3.docx")
+
+#TP时间
+names(dat)
+aa=dat[dat$group>1,]
+summary(aa$plt_time) #1.254   3.472   6.019
+
+#森林图
+dat<-read.csv(
+  "C:/Users/lxqji/OneDrive/R/血小板sepsis持续时间/数据处理/mimic_TP100mice2.csv")
+#crrt  gas_lactate  Age
+names(dat)
+dat$group=cut(dat$plt_time,c(-Inf,0,3,Inf),labels =1:3)
+dat$group=ifelse(dat$plt_time==0&dat$icu_plt_min<=100,2,dat$group)
+dat$group=factor(dat$group)
+dat$shock=factor(dat$shock)
+dat$copd=factor(dat$copd)
+dat$hypertension=factor(dat$hypertension)
+#dat$age=ifelse(dat$age>64,1,0)
+dat$surgery=ifelse(dat$first_careunit=="MICU",0,1)
+
+##+surgery      hypertension      crrt  +first_careunit 
+cox_mode3 <- coxph(Surv(hos_stay, hos_mort) ~ group+ age+gender+pt 
+                   + sofa_initia   +scr_in +shock                
+                   +hypertension+ copd+gas_po2    
+                   ,dat)
+cox_mode3
+tbl_regression(cox_mode3, exponentiate = TRUE)
+
+
+dat = subset(dat, select=c(hos_stay, hos_mort,group,age,shock,copd,hypertension,pt 
+                           ,sofa_initia,scr_in , gas_po2,crrt )) 
+
+colnames(dat)=c("hos_stay","hos_mort","Group","Age","Vasopressor_use","COPD","Hypertension",
+                "Prothrombin_time","SOFA","Creatinine","PO2")
+
+dat <- within(dat, {
+  COPD <- factor(COPD, labels = c("No", "Yes"))
+  Hypertension<- factor(Hypertension, labels = c("No", "Yes"))
+  Group <- factor(Group , labels = c("NO TP", "TP 1-3day", "TP >3day"))
+  Vasopressor_use <- factor(Vasopressor_use, labels = c("No", "Yes"))})
+
+cox_mode3 <- coxph(Surv(hos_stay, hos_mort) ~ Group+Age+SOFA+
+                     Hypertension+COPD+Vasopressor_use+Creatinine+Prothrombin_time+PO2 , dat)
+
+ggforest(cox_mode3, data =dat, main = "Hazard ratio", cpositions = c(0.10, 0.22, 0.4),
+         fontsize = 1.0, refLabel = "1", noDigits = 2)
+
+
+
+
+#dat[dat$hos_stay>28,]$hos_stay<-28
+library("survival")
+library("survminer")
+fit <- survfit(Surv(hos_stay, hos_mort) ~ group, data = dat)
+ggsurvplot(fit,
+           #conf.int = TRUE,# 显示置信区间
+           xlab='days', 
+           pval = T,
+           pval.size=3,
+           #linetype = "group", # 根据性别分组自动设置曲线类型
+           legend.labs=c('NO TP','TP for 1–3 days','TP for >3 days'),
+           surv.median.line = "hv", # 设置中位生存期显示
+           ggtheme = theme_bw(), # 设置ggplot2主题
+           palette = c("#E7B800", "#2E9FDF","#00A600FF"))
